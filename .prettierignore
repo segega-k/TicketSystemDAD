@@ -1,0 +1,12 @@
+node_modules
+target
+dist
+build
+.git
+.prettier-backup
+frontend/package-lock.json
+mvnw
+mvnw.cmd
+.mvn
+*.tar.gz
+*.zip
