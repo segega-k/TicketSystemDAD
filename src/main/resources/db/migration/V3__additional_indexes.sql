@@ -4,9 +4,11 @@ create extension if not exists pg_trgm;
 -- GIN-индекс по названию события для ILIKE '%q%' (UC1)
 create index if not exists idx_events_title_trgm on events using gin (title gin_trgm_ops);
 
--- Частичный индекс по дате будущих SCHEDULED/PUBLISHED событий
+-- Частичный индекс по дате SCHEDULED/PUBLISHED событий.
+-- now() здесь использовать нельзя: функции в предикате частичного индекса
+-- должны быть IMMUTABLE, поэтому фильтр по дате делается на уровне запроса.
 create index if not exists idx_events_starts_at on events (starts_at)
-  where starts_at >= now() and status in ('PUBLISHED','SCHEDULED');
+  where status in ('PUBLISHED','SCHEDULED');
 
 -- Карта мест (seat-map чтение): фильтр по event+status
 create index if not exists idx_seats_event_status on seats (event_id, status);
