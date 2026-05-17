@@ -93,7 +93,9 @@ public class EventController {
         @RequestParam(required = false) Instant cursor,
         @RequestParam(defaultValue = "20") int limit
     ) {
-        var list = events.search(q, cursor, PageRequest.of(0, Math.min(limit, 100)));
+        String query = q == null ? "" : q;
+        Instant after = cursor == null ? Instant.EPOCH : cursor;
+        var list = events.search(query, after, PageRequest.of(0, Math.min(limit, 100)));
         Instant next = list.size() == limit ? list.getLast().startsAt : null;
         return Map.of(
             "items",
