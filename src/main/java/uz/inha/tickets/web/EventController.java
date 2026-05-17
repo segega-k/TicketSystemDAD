@@ -21,6 +21,8 @@ import java.util.stream.Collectors;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import uz.inha.tickets.domain.Enums.EventStatus;
 import uz.inha.tickets.domain.Event;
 import uz.inha.tickets.domain.Seat;
 import uz.inha.tickets.domain.UserAccount;
@@ -35,6 +38,7 @@ import uz.inha.tickets.repo.BookingSeatRepository;
 import uz.inha.tickets.repo.EventRepository;
 import uz.inha.tickets.repo.SeatRepository;
 import uz.inha.tickets.service.AuditService;
+import uz.inha.tickets.service.BookingService;
 import uz.inha.tickets.service.DomainException;
 import uz.inha.tickets.service.HoldService;
 
@@ -49,6 +53,7 @@ public class EventController {
     final HoldService holds;
     final Current cur;
     final AuditService audit;
+    final BookingService bookingService;
 
     public EventController(
         EventRepository e,
@@ -56,7 +61,8 @@ public class EventController {
         BookingSeatRepository b,
         HoldService h,
         Current c,
-        AuditService a
+        AuditService a,
+        BookingService bs
     ) {
         events = e;
         seats = s;
@@ -64,6 +70,7 @@ public class EventController {
         holds = h;
         cur = c;
         audit = a;
+        bookingService = bs;
     }
 
     public record RowConfig(
@@ -202,6 +209,27 @@ public class EventController {
         out.put("title", ev.title);
         HttpStatus status = req.getRequestURI().startsWith("/api/v1/") ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(out);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete (cancel) event — admin or owning organizer")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable UUID id) {
+        UserAccount actor = cur.user();
+        Event ev = events.findById(id).orElseThrow(() -> DomainException.notFound("event not found"));
+        boolean isAdmin = actor.role == Role.ADMIN;
+        boolean isOwner = actor.role == Role.ORGANIZER && ev.organizer.id.equals(actor.id);
+        if (!isAdmin && !isOwner) throw DomainException.forbidden("admin or owning organizer required");
+        int cancelled = bookingService.cancelAllForEvent(actor, ev, "event_deleted_by_" + actor.role);
+        ev.status = EventStatus.CANCELLED;
+        events.save(ev);
+        audit.record(actor.id, "EVENT_DELETED", "event", ev.id, "cancelled_bookings=" + cancelled);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", ev.id);
+        out.put("status", ev.status.name());
+        out.put("cancelled_bookings", cancelled);
+        out.put("cancelledBookings", cancelled);
+        return ResponseEntity.ok(out);
     }
 
     @GetMapping({ "/{id}/seat-map", "/{id}/seats" })

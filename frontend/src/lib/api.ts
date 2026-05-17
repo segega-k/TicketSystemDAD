@@ -191,4 +191,43 @@ export const organizerApi = {
     ),
   dashboard: async (eventId: string) =>
     normalizeDashboard((await api.get<unknown>(`/organizer/events/${eventId}/dashboard`)).data, eventId),
+  deleteEvent: async (eventId: string) => (await api.delete(`/events/${eventId}`)).data,
+};
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: 'ORGANIZER' | 'ANALYST' | 'ADMIN' | 'CUSTOMER';
+  display_name?: string | null;
+  displayName?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminUserCreate {
+  email: string;
+  password: string;
+  role: 'ORGANIZER' | 'ANALYST';
+  display_name?: string;
+}
+
+export interface AdminUserUpdate {
+  email?: string;
+  password?: string;
+  role?: 'ORGANIZER' | 'ANALYST';
+  display_name?: string;
+}
+
+export const adminApi = {
+  listUsers: async (role?: string) => {
+    const { data } = await api.get<{ items: AdminUser[] }>('/admin/users', {
+      params: role ? { role } : undefined,
+    });
+    return data.items ?? [];
+  },
+  createUser: async (payload: AdminUserCreate) => (await api.post<AdminUser>('/admin/users', payload)).data,
+  updateUser: async (id: string, payload: AdminUserUpdate) =>
+    (await api.patch<AdminUser>(`/admin/users/${id}`, payload)).data,
+  deleteUser: async (id: string) => {
+    await api.delete(`/admin/users/${id}`);
+  },
 };

@@ -8,6 +8,7 @@ export interface AuthTokens {
 }
 export interface AuthUser {
   sub?: string;
+  id?: string;
   email?: string;
   role?: Role;
   exp?: number;

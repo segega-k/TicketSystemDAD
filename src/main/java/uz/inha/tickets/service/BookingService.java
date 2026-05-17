@@ -165,4 +165,34 @@ public class BookingService {
         );
         return pdfService.render(b);
     }
+
+    @Transactional
+    public int cancelAllForEvent(UserAccount actor, Event ev, String reason) {
+        var all = bookings.findByEventId(ev.id);
+        String trace = MDC.get("trace_id");
+        int cancelled = 0;
+        for (Booking b : all) {
+            if (b.status != BookingStatus.CONFIRMED) continue;
+            b.status = BookingStatus.CANCELLED;
+            b.cancelledAt = Instant.now();
+            b.refundCents = b.totalCents;
+            b.seats.clear();
+            Booking saved = bookings.saveAndFlush(b);
+            Refund refund = refunds.save(new Refund(saved, saved.refundCents));
+            saved.refund = refund;
+            audit.record(actor.id, "CANCELLED_BY_EVENT_DELETION", "booking", b.id, "reason=" + reason);
+            outbox.save(
+                new OutboxEvent(
+                    "ws.broadcast",
+                    "Booking",
+                    b.id,
+                    "BOOKING_CANCELLED",
+                    "{\"type\":\"CANCELLED\",\"event_id\":\"" + ev.id + "\",\"booking_id\":\"" + b.id + "\",\"reason\":\"EVENT_DELETED\"}",
+                    trace
+                )
+            );
+            cancelled++;
+        }
+        return cancelled;
+    }
 }

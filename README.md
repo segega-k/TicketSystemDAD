@@ -109,6 +109,17 @@ Flyway seed users use password `password123`:
 - Organizer: `organizer@example.com`
 - Customer: `customer@example.com`
 
+A default administrator is provisioned automatically on backend startup (see `AdminBootstrap`).
+Credentials are constant and not customizable through environment variables:
+
+- Admin: `admin@example.com`
+- Password: `Admin12345!`
+
+The admin can manage organizer/analyst accounts at `/admin/users` in the web UI and delete events
+(via the “Delete event” button on the event detail page). Deleting an event cancels every
+confirmed booking for that event — those bookings appear as `CANCELLED` in customers' “My
+bookings” with a full refund record. Organizers can delete only their own events.
+
 ## Validation and smoke checks
 
 ```bash

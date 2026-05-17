@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { SeatMap } from '../components/SeatMap';
-import { eventsApi, holdsApi, problemMessage } from '../lib/api';
+import { eventsApi, holdsApi, organizerApi, problemMessage } from '../lib/api';
 import { validateAdjacentSelection, getSelectedSeats } from '../lib/adjacentSeats';
 import { useAuthStore } from '../lib/authStore';
 import { useHoldStore } from '../lib/holdStore';
@@ -16,6 +16,7 @@ export function EventDetailPage() {
   const navigate = useNavigate();
   const authed = useAuthStore((s) => s.isAuthenticated());
   const role = useAuthStore((s) => s.user?.role);
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const setHold = useHoldStore((s) => s.setHold);
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [map, setMap] = useState<SeatMapResponse | null>(null);
@@ -102,11 +103,34 @@ export function EventDetailPage() {
               <span className="badge bg-blue-50 text-blue-700">{event.status}</span>
               <h1 className="mt-3 text-3xl font-bold">{event.name}</h1>
             </div>
-            {(role === 'ORGANIZER' || role === 'ADMIN') && (
-              <Link className="btn btn-secondary" to={`/organizer/events/${event.id}/dashboard`}>
-                View analytics
-              </Link>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {(role === 'ORGANIZER' || role === 'ADMIN' || role === 'ANALYST') && (
+                <Link className="btn btn-secondary" to={`/organizer/events/${event.id}/dashboard`}>
+                  View analytics
+                </Link>
+              )}
+              {(role === 'ADMIN' || (role === 'ORGANIZER' && event.organizer?.id === currentUserId)) && (
+                <button
+                  className="btn px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-300 hover:bg-rose-50"
+                  onClick={async () => {
+                    if (
+                      !confirm(
+                        'Delete this event? All confirmed bookings will be cancelled and refunded automatically.'
+                      )
+                    )
+                      return;
+                    try {
+                      await organizerApi.deleteEvent(event.id);
+                      navigate('/events');
+                    } catch (err) {
+                      setError(problemMessage(err));
+                    }
+                  }}
+                >
+                  Delete event
+                </button>
+              )}
+            </div>
           </div>
           <p className="mt-3 text-slate-700">{event.description}</p>
           <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
