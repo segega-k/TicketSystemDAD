@@ -140,7 +140,12 @@ export const holdsApi = {
       await api.delete(`/seats/hold/${holdGroupId}`);
     } catch (error) {
       if (!axios.isAxiosError(error) || (error.response?.status !== 404 && error.response?.status !== 405)) throw error;
-      await api.delete('/seats/hold', { data: { hold_group_id: holdGroupId, holdGroupId } });
+      try {
+        await api.delete('/seats/hold', { data: { hold_group_id: holdGroupId, holdGroupId } });
+      } catch (fallbackError) {
+        // A 404 here means the hold is already gone (expired or released) — releasing is idempotent.
+        if (!axios.isAxiosError(fallbackError) || fallbackError.response?.status !== 404) throw fallbackError;
+      }
     }
   },
 };

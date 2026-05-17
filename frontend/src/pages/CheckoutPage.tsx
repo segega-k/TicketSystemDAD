@@ -26,6 +26,7 @@ export function CheckoutPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [booking, setBooking] = useState<BookingResponse | null>(null);
+  const [released, setReleased] = useState(false);
 
   useEffect(() => {
     clearExpired();
@@ -60,6 +61,7 @@ export function CheckoutPage() {
     try {
       await holdsApi.release(hold.hold_group_id);
       removeHold(hold.hold_group_id);
+      setReleased(true);
     } catch (err) {
       setError(problemMessage(err));
     } finally {
@@ -102,6 +104,18 @@ export function CheckoutPage() {
         </ul>
         <Link className="btn btn-primary mt-5" to="/me/bookings">
           Go to my bookings
+        </Link>
+      </section>
+    );
+  if (released)
+    return (
+      <section className="card">
+        <h1 className="text-2xl font-bold">Hold released</h1>
+        <p className="mt-2 text-slate-600">
+          Your seats have been released and are available for others again.
+        </p>
+        <Link className="btn btn-primary mt-4" to="/events">
+          Find events
         </Link>
       </section>
     );
