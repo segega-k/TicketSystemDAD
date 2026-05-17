@@ -9,7 +9,7 @@ import type { EventListItem } from '../types';
 
 export function EventsListPage() {
   const role = useAuthStore((s) => s.user?.role);
-  const canViewAnalytics = role === 'ORGANIZER' || role === 'ADMIN';
+  const canViewAnalytics = role === 'ORGANIZER' || role === 'ANALYST' || role === 'ADMIN';
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [q, setQ] = useState('');
   const [activeQ, setActiveQ] = useState('');

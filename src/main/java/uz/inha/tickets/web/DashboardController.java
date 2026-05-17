@@ -51,11 +51,13 @@ public class DashboardController {
     @GetMapping({ "/api/organizer/dashboard", "/api/v1/organizer/dashboard" })
     Map<String, Object> dash() {
         UserAccount u = cur.user();
-        if (u.role != Role.ORGANIZER && u.role != Role.ADMIN) throw DomainException.forbidden(
+        if (u.role != Role.ORGANIZER && u.role != Role.ADMIN && u.role != Role.ANALYST) throw DomainException.forbidden(
             "organizer role required"
         );
-        var ev = events.findByOrganizerId(u.id);
-        var bs = bookings.findByEventOrganizerId(u.id);
+        // ANALYST/ADMIN видят агрегат по всем событиям; ORGANIZER — только по своим.
+        boolean all = u.role == Role.ADMIN || u.role == Role.ANALYST;
+        var ev = all ? events.findAll() : events.findByOrganizerId(u.id);
+        var bs = all ? bookings.findAll() : bookings.findByEventOrganizerId(u.id);
         long revenue = bs.stream().filter(b -> b.status == BookingStatus.CONFIRMED).mapToLong(b -> b.totalCents).sum();
         long tickets = bs
             .stream()
@@ -90,7 +92,11 @@ public class DashboardController {
     Map<String, Object> analytics(@PathVariable UUID eventId) {
         UserAccount u = cur.user();
         Event ev = events.findById(eventId).orElseThrow(() -> DomainException.notFound("event not found"));
-        if (!ev.organizer.id.equals(u.id) && u.role != Role.ADMIN) throw DomainException.forbidden("not your event");
+        // ANALYST и ADMIN могут смотреть аналитику любого события (read-only);
+        // ORGANIZER — только своих. Создание событий ANALYST по-прежнему запрещено.
+        if (
+            !ev.organizer.id.equals(u.id) && u.role != Role.ADMIN && u.role != Role.ANALYST
+        ) throw DomainException.forbidden("not your event");
 
         var bs = bookings
             .findByEventOrganizerId(ev.organizer.id)
