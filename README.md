@@ -1,151 +1,237 @@
-# ticket-system-dad
+# Ticket System DAD
 
-Java 21 / Spring Boot 3 ticketing and event booking backend with a Vite/React frontend. The canonical HTTP API is rooted at `/api/v1`.
+Flash-sale-safe ticketing and event-booking platform. Java 21 + Spring Boot 3.3
+backend, Vite + React 18 frontend, deployed as **two backend replicas behind an
+nginx gateway** with a full OpenTelemetry-based observability stack
+(Prometheus + Loki + Tempo + Grafana). Built for the *Database Application and
+Design* course (Spring 2026, Inha University in Tashkent).
 
-## Features
+- **Deployed:** http://35.234.70.163/ — Swagger UI:
+  http://35.234.70.163/swagger-ui/index.html
+- **Grafana:** http://35.234.70.163:3001/ — **Prometheus:** http://35.234.70.163:9090/
+- **Report:** `report/report.pdf` — **Spec:** [`SPEC.md`](SPEC.md) — **API:** [`docs/api-v1.md`](docs/api-v1.md)
+- **Diagrams:** ER, architecture, sequence, BPMN (Mermaid sources in [`docs/`](docs/), PNG renders in [`docs/img/`](docs/img/))
 
-- JWT auth with register/login/refresh/logout and refresh-token revocation.
-- Events API with search/cursor pagination, details, organizer creation, and generated seat maps.
-- Seat holds for 1-6 adjacent seats, Redis TTL, Redis Lua atomic hold, rate limiting, and test fallback.
-- Booking confirmation with `Idempotency-Key`, DB uniqueness, history/get/cancel, refund records, and ticket PDF endpoint.
-- Organizer dashboard/analytics, audit events, outbox table, Redis publish-ready scheduled publisher.
-- WebSocket/STOMP `/ws` seat updates on `/topic/events/{eventId}/seats`.
-- RFC7807 ProblemDetail with `trace_id`, OpenAPI at `/swagger-ui.html`, actuator health/prometheus metrics.
+## Features (mapped to course requirements R1–R13)
 
-## Run with Docker Compose
+- **Auth (R4):** JWT RS256, 30-min access + 7-day refresh tokens with rotation
+  and revocation. BCrypt(cost=12).
+- **Events (R4):** fuzzy search via Postgres `pg_trgm`, cursor pagination,
+  organizer event creation, generated seat maps with `(tier, row, seat)` layout.
+- **Seat holds (R5 + R11):** 1–6 adjacent seats per request, Redis TTL of 600 s,
+  **two from-scratch Lua scripts** — `acquire_hold.lua` (atomic multi-key + per-event
+  cap) and `token_bucket.lua` (lazy-refill rate limiter). In-memory fallback
+  with `APP_REDIS_FAIL_CLOSED` toggle.
+- **Bookings (R4):** mandatory `Idempotency-Key`, transactional commit with DB
+  uniqueness, history / detail / cancel + recorded refund, QR-coded PDF ticket.
+- **Realtime (R7):** STOMP-over-WebSocket on `/ws`, topic
+  `/topic/events/{eventId}/seats`, cross-replica fan-out via Redis Pub/Sub
+  channel `ws.broadcast` consumed by `RedisStompBridge`.
+- **Pipeline (R10):** Spring Batch `dailySalesJob` cron `0 0 2 * * *` UTC
+  → `analytics.event_daily_sales`; transactional outbox poller (200 ms tick,
+  `FOR UPDATE SKIP LOCKED`) drives Redis Pub/Sub. BPMN diagrams in `docs/bpmn/`.
+- **Gateway and replicas (R8 + R9):** nginx 1.27 with `least_conn` for HTTP and
+  `ip_hash` for `/ws`, TLS termination at `:443`, two `backend-N` Spring Boot
+  instances orchestrated by one `docker-compose.yml`.
+- **Observability (R12):** OpenTelemetry Java agent → otel-collector → Loki
+  (logs), Tempo (traces), Prometheus (scrapes `/actuator/prometheus`). Four
+  pre-provisioned Grafana dashboards (`api-overview`, `bookings-funnel`,
+  `ratelimit`, `outbox`).
+- **Errors (R13):** RFC 7807 `ProblemDetail` everywhere with `trace_id`
+  propagated from W3C `traceparent`. Stable error `code` strings for the client.
+- **Docs (R13):** OpenAPI 3 / Swagger UI at `/swagger-ui/index.html`,
+  CHANGELOG, this README, and `docs/api-v1.md`.
 
-Requirements: Docker with Compose v2. The backend image builds from this repository with Maven; a prebuilt `target/*.jar` is not required.
+## Quick start (local Docker Compose)
+
+Requirements: Docker with Compose v2, GNU make, ~3 GB free RAM. Java/Node are
+**not** required on the host — the backend image builds from this repo with
+Maven, and the frontend is bundled by the frontend Dockerfile.
 
 ```bash
-make jwt-keys              # optional but recommended; creates infra/jwt/*.pem
-make compose-up-detached   # or: docker compose up -d --build
+make jwt-keys              # generates infra/jwt/*.pem (RSA 2048)
+make certs                 # generates a self-signed TLS cert for nginx
+make compose-up-detached   # docker compose up -d --build
 ```
 
-Services exposed for local development:
+This brings up all 11 services on the `internal` bridge network:
+**postgres, redis, backend-1, backend-2, frontend, nginx, otel-collector,
+prometheus, loki, tempo, grafana.**
 
-- Frontend: http://localhost:3000
-- Backend API v1: http://localhost:8080/api/v1
-- Swagger UI: http://localhost:8080/swagger-ui.html
-- OpenAPI JSON: http://localhost:8080/v3/api-docs
-- Health: http://localhost:8080/actuator/health
+### Local endpoints
 
-Stop containers without deleting database data:
+| Surface          | URL                                                |
+| ---------------- | -------------------------------------------------- |
+| Frontend SPA     | http://localhost/                                  |
+| Backend API v1   | http://localhost/api/v1/                           |
+| Swagger UI       | http://localhost/swagger-ui/index.html             |
+| OpenAPI JSON     | http://localhost/v3/api-docs                       |
+| Actuator health  | http://localhost/actuator/health                   |
+| WebSocket STOMP  | ws://localhost/ws                                  |
+| Grafana          | http://localhost:3001/  (admin / admin)            |
+| Prometheus       | http://localhost:9090/                             |
+
+Configure `HTTP_PORT` / `HTTPS_PORT` / `GRAFANA_PORT` / `PROMETHEUS_PORT` in
+`.env` to remap host ports if you need to.
+
+### Stop, restart, reset
 
 ```bash
-make compose-down
+make compose-down            # stop, keep named volumes
+make compose-down-volumes    # stop AND drop volumes (re-runs Flyway seed)
+make compose-logs            # tail nginx + backend-1/2 logs
+make smoke BACKEND_URL=http://localhost FRONTEND_URL=http://localhost
 ```
 
-Delete persisted Compose data and re-run Flyway seed data:
+## Demo credentials
+
+Flyway seeds two accounts with password `password123`:
+
+- Organizer: `organizer@example.com`
+- Customer:  `customer@example.com`
+
+A default administrator is provisioned on backend startup
+(`config/AdminBootstrap.java`). The credentials are constant and not
+configurable via env vars:
+
+- Admin:    `admin@example.com`
+- Password: `Admin12345!`
+
+The admin can manage organizer / analyst accounts at `/admin/users` in the web
+UI and hard-delete events (which cascades to confirmed bookings as full
+refunds). Organizers can delete only their own events.
+
+## Local development (without Docker)
+
+If you want to run backend or frontend natively for fast iteration, start the
+data plane in Compose and point the app at `localhost`:
 
 ```bash
-make compose-down-volumes
-make compose-up-detached
+docker compose up -d postgres redis
+./mvnw spring-boot:run                      # backend on :8080
+cd frontend && npm ci && npm run dev        # frontend dev server on :5173
 ```
 
-Optional Prometheus is available behind the observability profile because `docs/observability/prometheus.yml` exists:
+Backend requires **Java 21** (we test on Eclipse Temurin 21). Frontend requires
+**Node 20+**. Local datasource defaults to `jdbc:postgresql://localhost:5432/ticket_system_dad`
+and Redis to `localhost:6379`.
+
+Run the full validation chain (matches CI) with:
 
 ```bash
-docker compose --profile observability up -d --build
-# Prometheus: http://localhost:9090
+make validate    # mvn verify + npm lint/test/build + docker compose config
 ```
 
-## Local development
-
-Backend requires Java 21. Frontend requires Node.js 20+.
+Run the k6 load profiles (Spec §11 quantitative threshold):
 
 ```bash
-./mvnw -B -ntp clean verify
-cd frontend
-npm ci
-npm run lint
-npm run test -- --passWithNoTests
-npm run build
-```
-
-Backend-only local run with local Postgres/Redis defaults:
-
-```bash
-./mvnw spring-boot:run
-```
-
-Useful Make targets:
-
-```bash
-make validate        # backend verify + frontend lint/test/build + compose config
-make backend-run
-make frontend-build
-make compose-up-detached
-make compose-logs
-make smoke
+make load-test-seat-map BACKEND_URL=http://localhost   # 100 VUs × 60 s, p95 < 400 ms
+make load-test-hold-burst BACKEND_URL=http://localhost # rate-limit verification
 ```
 
 ## Environment variables
 
-Compose defaults are development-only and can be overridden with shell variables or a local `.env` file. See `.env.example` for a copyable template.
+Compose defaults live in `.env.example`. All variables below also work as plain
+shell environment variables.
 
-| Variable                                                    | Default                                                        | Notes                                                                                                                                       |
-| ----------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                                               | `ticket_system_dad`                                            | Database name created by the Postgres container.                                                                                            |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD`                       | `ticket_system_dad` / `ticket_system_dad`                      | Development database credentials.                                                                                                           |
-| `POSTGRES_PORT`                                             | `5432`                                                         | Host port mapped to container Postgres.                                                                                                     |
-| `SPRING_DATASOURCE_URL`                                     | `jdbc:postgresql://postgres:5432/ticket_system_dad`            | Backend JDBC URL inside Compose. For local non-Docker runs the application default is `jdbc:postgresql://localhost:5432/ticket_system_dad`. |
-| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | `ticket_system_dad` / `ticket_system_dad`                      | Backend database credentials.                                                                                                               |
-| `REDIS_HOST`                                                | `redis`                                                        | Backend Redis host inside Compose (`localhost` for local non-Docker runs).                                                                  |
-| `REDIS_PORT`                                                | `6379`                                                         | Host port mapped to Redis and also the application default for local runs.                                                                  |
-| `REDIS_CONTAINER_PORT`                                      | `6379`                                                         | Redis port used by the backend container.                                                                                                   |
-| `JWT_RSA_PRIVATE_KEY_PATH` / `JWT_RSA_PUBLIC_KEY_PATH`      | `/run/secrets/jwt_private.pem` / `/run/secrets/jwt_public.pem` | PEM files mounted from `./infra/jwt`. Run `make jwt-keys` to create them.                                                                   |
-| `JWT_RSA_PRIVATE_KEY` / `JWT_RSA_PUBLIC_KEY`                | empty                                                          | Inline PEM alternatives used by Spring if path variables are not set.                                                                       |
-| `APP_REDIS_FAIL_CLOSED`                                     | `true`                                                         | If true, Redis write-path failures fail closed instead of using fallback behavior.                                                          |
-| `BACKEND_PORT` / `BACKEND_CONTAINER_PORT`                   | `8080` / `8080`                                                | Backend host/container ports.                                                                                                               |
-| `FRONTEND_PORT`                                             | `3000`                                                         | Host port for frontend nginx.                                                                                                               |
-| `VITE_API_BASE_URL`                                         | `/api/v1`                                                      | Frontend API base at build/dev time.                                                                                                        |
+| Variable                                                    | Default                                                        | Notes |
+| ----------------------------------------------------------- | -------------------------------------------------------------- | ----- |
+| `POSTGRES_DB`                                               | `ticket_system_dad`                                            | Database name. |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD`                       | `ticket_system_dad` / `ticket_system_dad`                      | DB credentials. |
+| `POSTGRES_PORT`                                             | `5432`                                                         | Postgres is **internal-only** in the published Compose; not host-mapped. |
+| `SPRING_DATASOURCE_URL`                                     | `jdbc:postgresql://postgres:5432/ticket_system_dad`            | JDBC URL inside Compose; for native runs the default is `jdbc:postgresql://localhost:5432/ticket_system_dad`. |
+| `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | `ticket_system_dad` / `ticket_system_dad`                      | Backend DB credentials. |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_CONTAINER_PORT`        | `redis` / `6379` / `6379`                                      | Redis is also internal-only in Compose. |
+| `APP_REDIS_FAIL_CLOSED`                                     | `true`                                                         | `true` → write path returns 503 on Redis outage; `false` → in-memory fallback (dev only). |
+| `JWT_RSA_PRIVATE_KEY_PATH` / `JWT_RSA_PUBLIC_KEY_PATH`      | `/run/secrets/jwt_private.pem` / `/run/secrets/jwt_public.pem` | PEM files mounted from `./infra/jwt`. Run `make jwt-keys` once. |
+| `JWT_RSA_PRIVATE_KEY` / `JWT_RSA_PUBLIC_KEY`                | empty                                                          | Inline PEM alternative if path variables are not set. |
+| `HTTP_PORT` / `HTTPS_PORT`                                  | `80` / `443`                                                   | Host ports for the **nginx gateway** (the only public ingress). |
+| `PROMETHEUS_PORT` / `GRAFANA_PORT`                          | `9090` / `3001`                                                | Observability host ports. |
+| `VITE_API_BASE_URL`                                         | `/api/v1`                                                      | Frontend API base at build/dev time. |
+| `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`             | `admin` / `admin`                                              | Grafana login. Change for any non-local deploy. |
 
-If no RSA PEM variables resolve to readable keys, the backend generates an ephemeral RS256 keypair at startup; this is acceptable only for short local runs because tokens are invalidated on restart.
-
-## Demo credentials
-
-Flyway seed users use password `password123`:
-
-- Organizer: `organizer@example.com`
-- Customer: `customer@example.com`
-
-A default administrator is provisioned automatically on backend startup (see `AdminBootstrap`).
-Credentials are constant and not customizable through environment variables:
-
-- Admin: `admin@example.com`
-- Password: `Admin12345!`
-
-The admin can manage organizer/analyst accounts at `/admin/users` in the web UI and delete events
-(via the “Delete event” button on the event detail page). Deleting an event cancels every
-confirmed booking for that event — those bookings appear as `CANCELLED` in customers' “My
-bookings” with a full refund record. Organizers can delete only their own events.
-
-## Validation and smoke checks
-
-```bash
-make validate
-make smoke BACKEND_URL=http://localhost:8080 FRONTEND_URL=http://localhost:3000
-```
-
-Manual smoke:
-
-```bash
-curl -fsS http://localhost:8080/actuator/health
-curl -fsS http://localhost:8080/api/v1/events
-curl -fsSI http://localhost:3000
-```
-
-CI runs backend `./mvnw clean verify` and frontend `npm ci`, lint, tests, and build.
+If neither RSA PEM variable resolves to readable keys, the backend generates an
+ephemeral 2048-bit RS256 keypair at startup and **logs a WARN** — fine for a
+local hack session, never for production because every restart invalidates all
+outstanding access tokens.
 
 ## API v1 contract
 
-The stable HTTP surface is documented in [`docs/api-v1.md`](docs/api-v1.md). Use `/api/v1` for all application endpoints. A few `/api/*` aliases remain for older local clients; do not use those aliases in new docs, tests, or examples. Actuator, Swagger UI, and `/v3/api-docs` are operational endpoints outside API v1.
+The canonical HTTP surface is documented in [`docs/api-v1.md`](docs/api-v1.md);
+Swagger UI is served from `/swagger-ui/index.html` on every backend. Use
+`/api/v1` for new code. A few legacy `/api/*` aliases survive for older
+clients — do not use them in new docs, tests, or examples.
 
-## Docker caveats
+Error responses follow **RFC 7807 ProblemDetail** with stable `code` strings
+defined in `config/ProblemAdvice.java`. Every response carries `trace_id` /
+`X-Trace-Id`; `429 Too Many Requests` additionally includes a `Retry-After`
+header and a `retry_after_seconds` property.
 
-- Compose is for local/staging validation, not production TLS termination, secret rotation, or horizontal-scaling proof.
-- This Compose file runs one backend service directly on port 8080; it does not include the SPEC's nginx gateway or two backend replicas.
-- Backend Docker build skips tests; CI and `make validate` run tests separately.
-- Compose exposes Postgres and Redis on localhost for developer convenience.
-- Named volumes persist Postgres/Redis data across `docker compose down`; use `down -v` to reset seed data.
-- Frontend is built as static files served by nginx and is not a hot-reload dev server.
+## Architecture in one paragraph
+
+The hot path for a flash-sale-safe booking goes: customer `POST /seats/hold` →
+nginx → one of the two `backend-N` replicas → token-bucket rate-limit (Lua) →
+atomic multi-seat acquire (Lua) → Postgres outbox row in the same transaction.
+The 200 ms outbox poller publishes the event to Redis channel `ws.broadcast`,
+and every replica's `RedisStompBridge` re-publishes to its local STOMP
+subscribers — so every browser sees `SEAT_HELD` regardless of which replica it
+is connected to. On payment, `POST /bookings` re-verifies the hold inside the
+same Postgres transaction that promotes seats to `BOOKED`. See
+[`docs/diagrams/sequence-hold-pay.mmd`](docs/diagrams/sequence-hold-pay.mmd)
+for the full message flow and the report PDF for the design discussion.
+
+## Repository layout
+
+```
+.
+├── src/main/java/uz/inha/tickets/       Backend (45 .java files)
+│   ├── config/          SecurityConfig, ProblemAdvice, WebSocketConfig, AdminBootstrap
+│   ├── web/             6 @RestControllers
+│   ├── service/         AuthService, JwtService, HoldService, BookingService, OutboxPublisher, …
+│   ├── domain/          10 JPA @Entities
+│   ├── repo/            9 Spring Data JPA repositories
+│   ├── batch/           DailySalesScheduler + Job (Spring Batch)
+│   ├── ws/              RedisStompBridge
+│   ├── tickets/         TicketPdfService (OpenPDF + ZXing)
+│   └── observability/   LogMdcFilter (W3C traceparent → MDC)
+├── src/main/resources/
+│   ├── application.yml
+│   ├── db/migration/    V1..V4 Flyway SQL
+│   └── redis/           acquire_hold.lua, token_bucket.lua (R11)
+├── frontend/            React 18 + Vite 5 + TypeScript SPA
+├── infra/
+│   ├── nginx/           gateway config + cert dir
+│   ├── otel/            otel-collector pipelines
+│   ├── prometheus/      scrape config (backend-1 + backend-2)
+│   ├── loki/  tempo/    log + trace storage
+│   ├── grafana/         datasources + 4 dashboards
+│   └── jwt/             RSA keypair output of `make jwt-keys`
+├── load-tests/          k6 (seat_map_load.js, hold_burst.js)
+├── docs/                SPEC.md, ADR, ER + BPMN + sequence diagrams (Mermaid + PNG)
+├── report/              report.typ → report.pdf (course design report)
+├── docker-compose.yml
+├── Dockerfile           backend image (multi-stage)
+├── Makefile             validate, smoke, jwt-keys, certs, compose-* targets
+└── pom.xml              Spring Boot 3.3.5, Java 21
+```
+
+## Notes and current limitations
+
+- **Payment provider is mocked.** `POST /bookings` accepts payment tokens
+  `MOCK_PAY_OK / MOCK_PAY_DECLINED / MOCK_PAY_TIMEOUT`. No real PSP integration.
+- **TLS cert is self-signed** (`make certs`, CN `tickets.local`, 365 d). A
+  production deploy would terminate TLS at a managed certificate
+  (Let's Encrypt / DNS-01).
+- **Single Redis primary.** No Cluster or Sentinel; documented failure mode is
+  `APP_REDIS_FAIL_CLOSED=true` → HTTP 503 on the write path while reads keep
+  serving from Postgres.
+- **Postgres and Redis are internal-only** in the published Compose. To inspect
+  them locally, add a `ports:` block or use `docker exec`.
+- **No GitHub Actions workflow yet.** `make validate` is the local CI
+  equivalent.
+
+## License & course attribution
+
+Coursework for INHA Tashkent CSE *Database Application and Design*, Spring
+2026. Submitted by *Team SIMPLE* — see `report/report.pdf` (cover page) for
+the full roster. Instructor: Dr. Sarvar Abdullaev.
