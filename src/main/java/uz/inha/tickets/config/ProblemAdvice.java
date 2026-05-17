@@ -44,8 +44,23 @@ public class ProblemAdvice {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ProblemDetail> conflict(Exception e, HttpServletRequest r) {
-        DomainException de = DomainException.conflict("one or more seats already booked");
+        String root = rootMessage(e);
+        String detail = looksLikeSeatConstraint(root)
+            ? "one or more seats already booked"
+            : "resource has dependent records and cannot be modified";
+        DomainException de = DomainException.conflict(detail);
         return domain(de, r);
+    }
+
+    private static String rootMessage(Throwable t) {
+        Throwable cur = t;
+        while (cur.getCause() != null && cur.getCause() != cur) cur = cur.getCause();
+        String m = cur.getMessage();
+        return m == null ? "" : m.toLowerCase();
+    }
+
+    private static boolean looksLikeSeatConstraint(String msg) {
+        return msg.contains("ux_booking_active_seat") || msg.contains("booking_seats") || msg.contains("seat_id");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
