@@ -8,7 +8,7 @@ import uz.inha.tickets.domain.Event;
 
 public interface EventRepository extends JpaRepository<Event, UUID> {
     @Query(
-        "select e from Event e where (lower(e.title) like lower(concat('%',:q,'%')) or lower(e.city) like lower(concat('%',:q,'%'))) and e.startsAt > :cursor order by e.startsAt asc"
+        "select e from Event e where (lower(e.title) like lower(concat('%',:q,'%')) or lower(e.city) like lower(concat('%',:q,'%'))) and e.startsAt > :cursor and e.status <> uz.inha.tickets.domain.Enums$EventStatus.CANCELLED order by e.startsAt asc"
     )
     List<Event> search(
         @Param("q") String q,

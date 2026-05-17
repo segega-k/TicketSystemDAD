@@ -20,6 +20,7 @@ export function decodeJwt(token: string): AuthUser {
     const role = roleText.replace('ROLE_', '').toUpperCase() as Role;
     return {
       sub: String(json.sub ?? ''),
+      id: json.uid ? String(json.uid) : undefined,
       email: String(json.email ?? json.sub ?? ''),
       full_name: String(json.full_name ?? ''),
       role,

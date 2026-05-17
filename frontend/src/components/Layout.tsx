@@ -39,6 +39,11 @@ export function Layout() {
                 Create event
               </NavLink>
             )}
+            {user?.role === 'ADMIN' && (
+              <NavLink to="/admin/users" className={navClass}>
+                Admin · Users
+              </NavLink>
+            )}
             {!authed ? (
               <>
                 <NavLink to="/login" className={navClass}>

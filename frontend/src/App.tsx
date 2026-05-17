@@ -10,6 +10,7 @@ import { MyBookingsPage } from './pages/MyBookingsPage';
 import { OrganizerCreateEventPage } from './pages/OrganizerCreateEventPage';
 import { OrganizerDashboardPage } from './pages/OrganizerDashboardPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
 
 export function App() {
   return (
@@ -30,6 +31,9 @@ export function App() {
           </Route>
           <Route element={<ProtectedRoute roles={['ORGANIZER', 'ANALYST', 'ADMIN']} />}>
             <Route path="organizer/events/:id/dashboard" element={<OrganizerDashboardPage />} />
+          </Route>
+          <Route element={<ProtectedRoute roles={['ADMIN']} />}>
+            <Route path="admin/users" element={<AdminUsersPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
