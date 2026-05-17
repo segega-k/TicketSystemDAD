@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import uz.inha.tickets.domain.Booking;
 import uz.inha.tickets.domain.BookingSeat;
 import uz.inha.tickets.service.BookingService;
+import uz.inha.tickets.service.DomainException;
 
 @RestController
 @Tag(name = "Bookings")
@@ -61,7 +62,13 @@ public class BookingController {
     ) {
         int pageSize = Math.min(Math.max(limit, 1), 100);
         java.time.Instant before = null;
-        if (cursor != null && !cursor.isBlank()) before = java.time.Instant.parse(cursor);
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                before = java.time.Instant.parse(cursor);
+            } catch (java.time.format.DateTimeParseException e) {
+                throw DomainException.bad("invalid cursor: expected ISO-8601 instant");
+            }
+        }
         final java.time.Instant finalBefore = before;
         var page = svc
             .history(cur.user())

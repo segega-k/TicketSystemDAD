@@ -94,6 +94,9 @@ public class EventController {
         @JsonAlias("price_cents") Long priceCents
     ) {}
 
+    /** Search-term column in events is varchar(255); clip well below to leave room for trgm. */
+    private static final int MAX_SEARCH_LEN = 200;
+
     @GetMapping
     @Operation(summary = "List events")
     public Map<String, Object> list(
@@ -101,10 +104,12 @@ public class EventController {
         @RequestParam(required = false) Instant cursor,
         @RequestParam(defaultValue = "20") int limit
     ) {
-        String query = q == null ? "" : q;
+        String query = q == null ? "" : q.trim();
+        if (query.length() > MAX_SEARCH_LEN) query = query.substring(0, MAX_SEARCH_LEN);
         Instant after = cursor == null ? Instant.EPOCH : cursor;
-        var list = events.search(query, after, PageRequest.of(0, Math.min(limit, 100)));
-        Instant next = list.size() == limit ? list.getLast().startsAt : null;
+        int pageSize = Math.min(Math.max(limit, 1), 100);
+        var list = events.search(query, after, PageRequest.of(0, pageSize));
+        Instant next = list.size() == pageSize ? list.getLast().startsAt : null;
         return Map.of(
             "items",
             list.stream().map(ev -> eventDto(ev, false)).toList(),

@@ -58,10 +58,12 @@ public class DashboardController {
         boolean all = u.role == Role.ADMIN || u.role == Role.ANALYST;
         var ev = all ? events.findAll() : events.findByOrganizerId(u.id);
         var bs = all ? bookings.findAll() : bookings.findByEventOrganizerId(u.id);
-        long revenue = bs.stream().filter(b -> b.status == BookingStatus.CONFIRMED).mapToLong(b -> b.totalCents).sum();
-        long tickets = bs
-            .stream()
-            .filter(b -> b.status == BookingStatus.CONFIRMED)
+        long revenue = bs.stream()
+            .filter(b -> b != null && b.status == BookingStatus.CONFIRMED)
+            .mapToLong(b -> b.totalCents)
+            .sum();
+        long tickets = bs.stream()
+            .filter(b -> b != null && b.status == BookingStatus.CONFIRMED && b.seats != null)
             .mapToLong(b -> b.seats.size())
             .sum();
         return Map.of(
