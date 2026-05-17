@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:ticketsystemdad;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+  jpa.hibernate.ddl-auto: create-drop
+  flyway.enabled: false
+  data.redis.host: 127.0.0.1
+app:
+  redis.fail-closed: false
+  jwt:
+    issuer: ticket-system-dad
+    access-ttl-seconds: 1800
+    refresh-ttl-seconds: 604800
+logging.level.org.springframework.security: WARN
