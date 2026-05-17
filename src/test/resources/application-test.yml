@@ -12,4 +12,7 @@ app:
     issuer: ticket-system-dad
     access-ttl-seconds: 1800
     refresh-ttl-seconds: 604800
+  outbox:
+    poll-interval-ms: 600000
 logging.level.org.springframework.security: WARN
+logging.level.uz.inha.tickets.service.OutboxPublisher: ERROR

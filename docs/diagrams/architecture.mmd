@@ -1,0 +1,64 @@
+---
+title: Ticketing — System Architecture (Spec §2.2)
+---
+flowchart LR
+    subgraph Client
+        FE[React 18 + Vite frontend]
+    end
+
+    subgraph Edge["nginx 1.27 (TLS, least_conn, ip_hash for /ws)"]
+        NX[nginx gateway]
+    end
+
+    subgraph App["Spring Boot 3.3 (Java 21)"]
+        B1[backend-1]
+        B2[backend-2]
+    end
+
+    subgraph Data
+        PG[(PostgreSQL 16<br/>pgcrypto, pg_trgm)]
+        RD[(Redis 7<br/>holds + cache + Pub/Sub)]
+    end
+
+    subgraph Batch["Spring Batch (cron)"]
+        DS[daily_sales 02:00 UTC]
+        OR[outbox_reconciliation */10m]
+    end
+
+    subgraph Obs["Observability"]
+        OTC[otel-collector]
+        PR[(Prometheus)]
+        LO[(Loki)]
+        TE[(Tempo)]
+        GR[Grafana dashboards]
+    end
+
+    FE -- HTTPS / WSS --> NX
+    NX -- HTTP --> B1
+    NX -- HTTP --> B2
+    NX -- WS ip_hash --> B1
+    NX -- WS ip_hash --> B2
+
+    B1 <-->|JDBC| PG
+    B2 <-->|JDBC| PG
+    B1 <-->|Lettuce| RD
+    B2 <-->|Lettuce| RD
+
+    B1 -. publishes ws.broadcast .-> RD
+    B2 -. publishes ws.broadcast .-> RD
+    RD -. fanout .-> B1
+    RD -. fanout .-> B2
+
+    DS --> PG
+    OR --> PG
+    OR --> RD
+
+    B1 -- OTLP/HTTP --> OTC
+    B2 -- OTLP/HTTP --> OTC
+    OTC --> LO
+    OTC --> TE
+    B1 -- /actuator/prometheus --> PR
+    B2 -- /actuator/prometheus --> PR
+    PR --> GR
+    LO --> GR
+    TE --> GR

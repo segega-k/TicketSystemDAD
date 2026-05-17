@@ -26,7 +26,8 @@ public class SecurityConfig {
 
     @Bean
     PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        // BCrypt cost factor 12 per spec §1.5 (Security: "bcrypt(cost=12)").
+        return new BCryptPasswordEncoder(12);
     }
 
     @Bean

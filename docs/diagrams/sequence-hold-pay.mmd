@@ -1,0 +1,47 @@
+---
+title: Hold -> Pay -> Confirm -> Broadcast (Spec §15)
+---
+sequenceDiagram
+    autonumber
+    actor User
+    participant FE as Frontend
+    participant NG as nginx
+    participant B as backend-N
+    participant RD as Redis
+    participant PG as Postgres
+    participant OD as OutboxDispatcher
+    participant BR as RedisStompBridge
+    participant FE2 as Other Frontend (other replica)
+
+    User->>FE: pick seats
+    FE->>NG: POST /api/v1/seats/hold
+    NG->>B: forward
+    B->>RD: EVALSHA token_bucket.lua (rate limit)
+    B->>RD: EVALSHA acquire_hold.lua (atomic N keys + cap)
+    RD-->>B: OK / SEAT_CONFLICT / CAP_EXCEEDED
+    B->>PG: INSERT outbox_events SEAT_HELD<br/>INSERT audit_events HOLD_CREATED
+    B-->>FE: 200 {hold_token, ttl=600}
+
+    Note over OD,RD: 200 ms tick (FOR UPDATE SKIP LOCKED)
+    OD->>PG: SELECT undispatched FOR UPDATE SKIP LOCKED
+    OD->>RD: PUBLISH ws.broadcast {SEAT_HELD}
+    OD->>PG: UPDATE published_at
+
+    RD-->>BR: ws.broadcast on every replica
+    BR->>FE2: STOMP /topic/events/{id}/seats
+
+    User->>FE: pay (mock)
+    FE->>NG: POST /api/v1/bookings (Idempotency-Key)
+    NG->>B: forward
+    B->>RD: GET idem:booking:{user}:{key}
+    alt cache hit
+        B-->>FE: 200 cached response
+    else cache miss
+        B->>RD: verify hold token
+        B->>PG: BEGIN tx<br/>INSERT bookings<br/>UPDATE seats status<br/>INSERT outbox SEAT_BOOKED<br/>COMMIT
+        B->>RD: SET idem:booking:* TTL 24h
+        B-->>FE: 201 {bookings[], ticket_pdf_urls[]}
+    end
+
+    OD->>RD: PUBLISH ws.broadcast {SEAT_BOOKED}
+    BR->>FE2: STOMP push

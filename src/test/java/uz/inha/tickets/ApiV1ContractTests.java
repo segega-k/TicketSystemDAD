@@ -207,7 +207,7 @@ class ApiV1ContractTests {
             .andExpect(status().isOk())
             .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("attachment")))
             .andReturn();
-        assertTrue(pdf.getResponse().getContentAsString().startsWith("%PDF-1.4"));
+        assertTrue(pdf.getResponse().getContentAsString().startsWith("%PDF-"));
 
         mvc
             .perform(

@@ -1,0 +1,30 @@
+---
+title: BPMN-style flow — Outbox Reconciliation (Spec §10.2)
+---
+flowchart LR
+    start([⏱ Cron */10 min]):::evt
+    backlog{COUNT undispatched > 1000?}:::gw
+    alert[Emit OutboxBacklogHigh<br/>Grafana alert]:::task
+    fetch[SELECT outbox_events<br/>WHERE published_at IS NULL<br/>AND created_at < now()-1min<br/>AND attempts < 10]:::task
+    each{rows?}:::gw
+    pub[PUBLISH to Redis ws.broadcast]:::task
+    ok[UPDATE published_at, attempts++]:::task
+    failBranch{attempts >= 10?}:::gw
+    poison[Mark poison-pill<br/>attempts = 99]:::task
+    log[Increment outbox_poison_total]:::task
+    done([✅ End]):::evt
+
+    start --> backlog
+    backlog -->|yes| alert --> fetch
+    backlog -->|no| fetch
+    fetch --> each
+    each -->|no| done
+    each -->|yes| pub
+    pub -->|success| ok --> each
+    pub -->|exception| failBranch
+    failBranch -->|yes| poison --> log --> each
+    failBranch -->|no| each
+
+    classDef evt fill:#fff5d6,stroke:#b58900;
+    classDef task fill:#e0f0ff,stroke:#268bd2;
+    classDef gw fill:#f0e0ff,stroke:#6c71c4;

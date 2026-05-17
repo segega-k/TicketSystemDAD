@@ -8,6 +8,9 @@ spring:
     hibernate.ddl-auto: validate
     properties.hibernate.jdbc.time_zone: UTC
   flyway.enabled: true
+  batch:
+    jdbc.initialize-schema: always
+    job.enabled: false
   data.redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
@@ -31,3 +34,11 @@ app:
   holds.ttl-seconds: 600
   holds.max-per-user-event: 6
   rate-limit.holds-per-minute: 10
+  idempotency.ttl-seconds: 86400
+  outbox:
+    poll-interval-ms: 200
+    batch-size: 100
+    max-attempts-before-poison: 10
+    backlog-alert-threshold: 1000
+  cancellation.min-hours-before-event: 24
+  payment.mock: true

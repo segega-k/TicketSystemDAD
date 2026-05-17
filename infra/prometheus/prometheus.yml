@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: tickets-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - backend-1:8080
+          - backend-2:8080
+        labels:
+          service: tickets-backend
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

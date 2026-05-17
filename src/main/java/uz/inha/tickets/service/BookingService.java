@@ -2,16 +2,19 @@ package uz.inha.tickets.service;
 
 import static uz.inha.tickets.domain.Enums.BookingStatus;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.inha.tickets.domain.*;
 import uz.inha.tickets.repo.*;
+import uz.inha.tickets.tickets.TicketPdfService;
 
 @Service
 public class BookingService {
@@ -23,6 +26,11 @@ public class BookingService {
     final AuditService audit;
     final RefundRepository refunds;
     final OutboxEventRepository outbox;
+    final StringRedisTemplate redis;
+    final TicketPdfService pdfService;
+
+    @Value("${app.idempotency.ttl-seconds:86400}")
+    long idempotencyTtl;
 
     public record ConfirmResult(Booking booking, boolean replay) {}
 
@@ -33,7 +41,9 @@ public class BookingService {
         HoldService h,
         AuditService a,
         RefundRepository r,
-        OutboxEventRepository o
+        OutboxEventRepository o,
+        StringRedisTemplate redis,
+        TicketPdfService pdfService
     ) {
         bookings = b;
         seats = s;
@@ -42,13 +52,35 @@ public class BookingService {
         audit = a;
         refunds = r;
         outbox = o;
+        this.redis = redis;
+        this.pdfService = pdfService;
+    }
+
+    static String idemKey(UUID user, String idem) {
+        return "idem:booking:" + user + ":" + idem;
+    }
+
+    void cacheIdempotency(UUID user, String idem, UUID bookingId) {
+        if (idem == null || idem.isBlank()) return;
+        try {
+            redis.opsForValue().set(idemKey(user, idem), bookingId.toString(), idempotencyTtl, TimeUnit.SECONDS);
+        } catch (Exception ignored) {}
+    }
+
+    Booking lookupIdempotent(UUID user, String idem) {
+        if (idem == null || idem.isBlank()) return null;
+        try {
+            String cached = redis.opsForValue().get(idemKey(user, idem));
+            if (cached != null) return bookings.findById(UUID.fromString(cached)).orElse(null);
+        } catch (Exception ignored) {}
+        return bookings.findByUserIdAndIdempotencyKey(user, idem).orElse(null);
     }
 
     @Transactional
     public ConfirmResult confirm(UserAccount u, String token, String idem, String paymentToken) {
         if (idem == null || idem.isBlank()) throw DomainException.bad("Idempotency-Key header is required");
-        var existing = bookings.findByUserIdAndIdempotencyKey(u.id, idem);
-        if (existing.isPresent()) return new ConfirmResult(existing.get(), true);
+        Booking cached = lookupIdempotent(u.id, idem);
+        if (cached != null) return new ConfirmResult(cached, true);
         authorizePayment(paymentToken);
         HoldService.HoldResult h = holds.verify(u.id, token);
         Event ev = events.findById(h.eventId()).orElseThrow(() -> DomainException.notFound("event not found"));
@@ -60,12 +92,19 @@ public class BookingService {
         Booking saved = bookings.saveAndFlush(bk);
         holds.releaseVerified(h);
         audit.record(u.id, "CONFIRMED", "booking", saved.id, "seats=" + h.seatIds());
-        outbox.save(
-            new OutboxEvent(
+        String trace = MDC.get("trace_id");
+        for (BookingSeat bs : saved.seats) {
+            OutboxEvent ev1 = new OutboxEvent(
                 "ws.broadcast",
-                "{\"type\":\"BOOKED\",\"event_id\":\"" + ev.id + "\",\"booking_id\":\"" + saved.id + "\"}"
-            )
-        );
+                "Booking",
+                saved.id,
+                "SEAT_BOOKED",
+                "{\"type\":\"BOOKED\",\"event_id\":\"" + ev.id + "\",\"seat_id\":\"" + bs.seat.id + "\",\"status\":\"BOOKED\",\"booking_id\":\"" + saved.id + "\"}",
+                trace
+            );
+            outbox.save(ev1);
+        }
+        cacheIdempotency(u.id, idem, saved.id);
         return new ConfirmResult(saved, false);
     }
 
@@ -105,10 +144,15 @@ public class BookingService {
         Refund refund = refunds.save(new Refund(saved, saved.refundCents));
         saved.refund = refund;
         audit.record(u.id, "CANCELLED", "booking", b.id, "refundCents=" + b.refundCents);
+        String trace = MDC.get("trace_id");
         outbox.save(
             new OutboxEvent(
                 "ws.broadcast",
-                "{\"type\":\"CANCELLED\",\"event_id\":\"" + b.event.id + "\",\"booking_id\":\"" + b.id + "\"}"
+                "Booking",
+                b.id,
+                "BOOKING_CANCELLED",
+                "{\"type\":\"CANCELLED\",\"event_id\":\"" + b.event.id + "\",\"booking_id\":\"" + b.id + "\"}",
+                trace
             )
         );
         return saved;
@@ -119,44 +163,6 @@ public class BookingService {
         if (b.status != BookingStatus.CONFIRMED) throw DomainException.conflict(
             "ticket unavailable for cancelled booking"
         );
-        String seatText = b.seats.stream().map(bs -> bs.seat.rowLabel + bs.seat.seatNumber).toList().toString();
-        String text =
-            "Ticket " + b.id + " | Event: " + b.event.title + " | Seats: " + seatText + " | Status: " + b.status;
-        return simplePdf(text);
-    }
-
-    byte[] simplePdf(String text) {
-        String safe = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)");
-        String stream = "BT /F1 12 Tf 50 760 Td (" + safe + ") Tj ET\n";
-        List<String> objects = new ArrayList<>();
-        objects.add("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
-        objects.add("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
-        objects.add(
-            "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >> endobj\n"
-        );
-        objects.add(
-            "4 0 obj << /Length " +
-            stream.getBytes(StandardCharsets.ISO_8859_1).length +
-            " >> stream\n" +
-            stream +
-            "endstream endobj\n"
-        );
-        objects.add("5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n");
-        StringBuilder pdf = new StringBuilder("%PDF-1.4\n");
-        List<Integer> offsets = new ArrayList<>();
-        for (String obj : objects) {
-            offsets.add(pdf.toString().getBytes(StandardCharsets.ISO_8859_1).length);
-            pdf.append(obj);
-        }
-        int xref = pdf.toString().getBytes(StandardCharsets.ISO_8859_1).length;
-        pdf.append("xref\n0 ").append(objects.size() + 1).append("\n0000000000 65535 f \n");
-        for (int off : offsets) pdf.append(String.format("%010d 00000 n \n", off));
-        pdf
-            .append("trailer << /Size ")
-            .append(objects.size() + 1)
-            .append(" /Root 1 0 R >>\nstartxref\n")
-            .append(xref)
-            .append("\n%%EOF\n");
-        return pdf.toString().getBytes(StandardCharsets.ISO_8859_1);
+        return pdfService.render(b);
     }
 }

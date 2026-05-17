@@ -1,0 +1,68 @@
+{
+  "title": "Bookings Funnel",
+  "uid": "bookings-funnel",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Hold requests (rate/min)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 6},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/api/v1/seats/hold\",method=\"POST\"}[5m])) * 60",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Bookings confirmed (rate/min)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 6},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/api/v1/bookings\",method=\"POST\",status=~\"2..\"}[5m])) * 60",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Cancellations (rate/min)",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 6},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/api/v1/bookings/{id}/cancel\",method=\"POST\"}[5m])) * 60",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Conversion: hold -> booking",
+      "gridPos": {"x": 0, "y": 6, "w": 24, "h": 9},
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/api/v1/seats/hold\",method=\"POST\"}[5m]))",
+          "legendFormat": "hold requests",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{uri=\"/api/v1/bookings\",method=\"POST\",status=~\"2..\"}[5m]))",
+          "legendFormat": "bookings",
+          "refId": "B"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    }
+  ]
+}
