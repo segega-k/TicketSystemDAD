@@ -1,0 +1,36 @@
+---
+title: docker-compose dependency graph (derived from depends_on)
+---
+flowchart TD
+    postgres((postgres :5432))
+    redis((redis :6379))
+    flyway[flyway/migrations]
+    backend1[backend-1 :8080]
+    backend2[backend-2 :8080]
+    frontend[frontend :80]
+    nginx[nginx :80/:443]
+    otel[otel-collector]
+    prom[prometheus :9090]
+    loki[loki :3100]
+    tempo[tempo :3200]
+    grafana[grafana :3000]
+
+    postgres -- healthy --> backend1
+    postgres -- healthy --> backend2
+    redis    -- healthy --> backend1
+    redis    -- healthy --> backend2
+    backend1 -- healthy --> frontend
+    backend2 -- healthy --> frontend
+    backend1 -- healthy --> nginx
+    backend2 -- healthy --> nginx
+    frontend -- healthy --> nginx
+
+    loki  --> otel
+    tempo --> otel
+    backend1 -- OTLP --> otel
+    backend2 -- OTLP --> otel
+    backend1 -- /actuator/prometheus --> prom
+    backend2 -- /actuator/prometheus --> prom
+    prom  --> grafana
+    loki  --> grafana
+    tempo --> grafana

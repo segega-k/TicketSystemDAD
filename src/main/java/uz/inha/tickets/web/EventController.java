@@ -99,7 +99,7 @@ public class EventController {
         Instant next = list.size() == limit ? list.getLast().startsAt : null;
         return Map.of(
             "items",
-            list,
+            list.stream().map(ev -> eventDto(ev, false)).toList(),
             "nextCursor",
             next == null ? "" : next.toString(),
             "next_cursor",
@@ -109,8 +109,59 @@ public class EventController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Get event detail")
-    Event detail(@PathVariable UUID id) {
-        return events.findById(id).orElseThrow(() -> DomainException.notFound("event not found"));
+    Map<String, Object> detail(@PathVariable UUID id) {
+        Event ev = events.findById(id).orElseThrow(() -> DomainException.notFound("event not found"));
+        return eventDto(ev, true);
+    }
+
+    /**
+     * Sürücü-нейтральный DTO события: фронтовый адаптер ждёт name/event_date/total_seats и
+     * диапазон цен, а JPA-сущность сериализуется как title/startsAt без агрегатов мест.
+     * Отдаём оба варианта именования (snake + camel) по той же схеме, что и create()/seatMap().
+     */
+    private Map<String, Object> eventDto(Event ev, boolean detail) {
+        var evSeats = seats.findByEventIdOrderBySectionAscRowLabelAscSeatNumberAsc(ev.id);
+        int total = evSeats.size();
+        long min = evSeats.stream().mapToLong(s -> s.priceCents).min().orElse(0);
+        long max = evSeats.stream().mapToLong(s -> s.priceCents).max().orElse(0);
+        var bookedIds = booked.bookedSeatIds(ev.id);
+        int bookedCount = bookedIds.size();
+        int available = Math.max(0, total - bookedCount);
+        String date = ev.startsAt == null ? "" : ev.startsAt.toString();
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", ev.id);
+        m.put("name", ev.title);
+        m.put("title", ev.title);
+        m.put("event_date", date);
+        m.put("eventDate", date);
+        m.put("starts_at", date);
+        m.put("startsAt", date);
+        m.put("venue_name", ev.venueName);
+        m.put("venueName", ev.venueName);
+        m.put("city", ev.city);
+        m.put("status", ev.status == null ? "PUBLISHED" : ev.status.name());
+        m.put("total_seats", total);
+        m.put("totalSeats", total);
+        m.put("min_price", cents(min));
+        m.put("minPrice", cents(min));
+        m.put("max_price", cents(max));
+        m.put("maxPrice", cents(max));
+        if (detail) {
+            m.put("description", ev.description);
+            Map<String, Object> org = new LinkedHashMap<>();
+            org.put("id", ev.organizer.id);
+            org.put("full_name", ev.organizer.displayName);
+            org.put("fullName", ev.organizer.displayName);
+            m.put("organizer", org);
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("total", total);
+            summary.put("available", available);
+            summary.put("booked", bookedCount);
+            m.put("seats_summary", summary);
+            m.put("seatsSummary", summary);
+        }
+        return m;
     }
 
     @PostMapping

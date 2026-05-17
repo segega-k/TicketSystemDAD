@@ -1,0 +1,37 @@
+---
+title: BPMN — Hold → Pay → Confirm → Broadcast (Spec §15)
+---
+flowchart TD
+    pick([🎟 User picks seats]):::evt
+    rate{Rate-limit OK?<br/>token_bucket.lua}:::gw
+    rate429([429 Too Many Requests]):::evt
+    cap{Per-user cap OK?}:::gw
+    cap422([422 seat-cap-exceeded]):::evt
+    lua[Lua: acquire_hold.lua<br/>atomic N seats + INCRBY count]:::task
+    hConflict([409 seat-already-held]):::evt
+    holdOk[200 hold_token, TTL 600s]:::task
+    out1[INSERT outbox SEAT_HELD<br/>INSERT audit HOLD_CREATED]:::task
+    waitPay([💳 user pays]):::evt
+    idem{idem:booking key cached?}:::gw
+    idemHit([200 cached response]):::evt
+    verify[verify hold (token + TTL)]:::task
+    tx[BEGIN tx<br/>INSERT bookings<br/>UPDATE seats=BOOKED<br/>INSERT outbox SEAT_BOOKED<br/>COMMIT]:::task
+    cache[SET idem:booking:* TTL 24h]:::task
+    resp([201 Created]):::evt
+    broadcast[OutboxDispatcher 200ms<br/>PUBLISH ws.broadcast]:::task
+    fanout[RedisStompBridge<br/>→ /topic/events/{id}/seats]:::task
+    seen([👀 All viewers see BOOKED]):::evt
+
+    pick --> rate
+    rate -->|no| rate429
+    rate -->|yes| cap
+    cap -->|no| cap422
+    cap -->|yes| lua
+    lua -->|conflict| hConflict
+    lua -->|ok| out1 --> holdOk --> waitPay --> idem
+    idem -->|hit| idemHit
+    idem -->|miss| verify --> tx --> cache --> resp --> broadcast --> fanout --> seen
+
+    classDef evt fill:#fff5d6,stroke:#b58900;
+    classDef task fill:#e0f0ff,stroke:#268bd2;
+    classDef gw fill:#f0e0ff,stroke:#6c71c4;

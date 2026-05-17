@@ -1,0 +1,94 @@
+---
+title: Ticketing — ER Diagram (Spec §2.1)
+---
+erDiagram
+    USERS ||--o{ REFRESH_TOKENS : owns
+    USERS ||--o{ EVENTS : organizes
+    USERS ||--o{ BOOKINGS : "places (as customer)"
+    EVENTS ||--o{ SEATS : "has 1..*"
+    EVENTS ||--o{ BOOKINGS : "receives"
+    BOOKINGS ||--o{ BOOKING_SEATS : "contains 1..*"
+    SEATS ||--o| BOOKING_SEATS : "occupied by"
+    BOOKINGS ||--o| REFUNDS : "may have"
+    BOOKINGS ||--o{ AUDIT_EVENTS : "logs"
+    EVENTS ||--o{ OUTBOX_EVENTS : "produces"
+
+    USERS {
+        uuid id PK
+        string email UK
+        string password_hash
+        string role "CUSTOMER|ORGANIZER|ADMIN"
+        string display_name
+        timestamptz created_at
+    }
+    REFRESH_TOKENS {
+        uuid id PK
+        uuid user_id FK
+        string token_hash UK "SHA-256 hex"
+        timestamptz expires_at
+        timestamptz revoked_at
+    }
+    EVENTS {
+        uuid id PK
+        uuid organizer_id FK
+        string title
+        string description
+        timestamptz starts_at
+        string status
+        string venue_name
+        string city
+    }
+    SEATS {
+        uuid id PK
+        uuid event_id FK
+        string section
+        string row_label
+        int seat_number
+        bigint price_cents
+        string status "AVAILABLE|BOOKED"
+    }
+    BOOKINGS {
+        uuid id PK
+        uuid user_id FK
+        uuid event_id FK
+        string idempotency_key
+        string status "CONFIRMED|CANCELLED"
+        bigint total_cents
+        timestamptz created_at
+        timestamptz cancelled_at
+        bigint refund_cents
+    }
+    BOOKING_SEATS {
+        uuid id PK
+        uuid booking_id FK
+        uuid event_id FK
+        uuid seat_id FK
+    }
+    REFUNDS {
+        uuid id PK
+        uuid booking_id UK
+        bigint amount_cents
+        string reason
+        timestamptz refunded_at
+    }
+    AUDIT_EVENTS {
+        bigserial id PK
+        uuid actor_id FK
+        string action
+        string entity_type
+        uuid entity_id
+        string metadata
+        timestamptz created_at
+    }
+    OUTBOX_EVENTS {
+        uuid id PK
+        string topic
+        string aggregate_type
+        uuid aggregate_id
+        string event_type
+        string payload
+        string trace_id
+        timestamptz created_at
+        timestamptz published_at
+        int attempts
+    }

@@ -293,11 +293,14 @@ public class HoldService {
             q.addLast(Instant.now());
         }
         try {
+            // Token bucket: capacity = rpm, refill = rpm tokens per minute (rpm/60 per second)
+            double refillPerSecond = rpm / 60.0;
             Long retry = redis.execute(
-                new DefaultRedisScript<>(script("redis/rate_limit_fixed_window.lua"), Long.class),
+                new DefaultRedisScript<>(script("redis/token_bucket.lua"), Long.class),
                 List.of("ratelimit:hold:" + user),
                 String.valueOf(rpm),
-                "60"
+                String.valueOf(refillPerSecond),
+                String.valueOf(System.currentTimeMillis())
             );
             if (retry != null && retry > 0) throw DomainException.tooManyRequests("hold rate limit exceeded").prop(
                 "retry_after_seconds",

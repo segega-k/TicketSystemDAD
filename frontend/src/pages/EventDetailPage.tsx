@@ -102,9 +102,9 @@ export function EventDetailPage() {
               <span className="badge bg-blue-50 text-blue-700">{event.status}</span>
               <h1 className="mt-3 text-3xl font-bold">{event.name}</h1>
             </div>
-            {role === 'ORGANIZER' && (
+            {(role === 'ORGANIZER' || role === 'ADMIN') && (
               <Link className="btn btn-secondary" to={`/organizer/events/${event.id}/dashboard`}>
-                Dashboard
+                View analytics
               </Link>
             )}
           </div>

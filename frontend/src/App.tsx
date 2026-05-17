@@ -27,6 +27,8 @@ export function App() {
           </Route>
           <Route element={<ProtectedRoute roles={['ORGANIZER', 'ADMIN']} />}>
             <Route path="organizer/events/new" element={<OrganizerCreateEventPage />} />
+          </Route>
+          <Route element={<ProtectedRoute roles={['ORGANIZER', 'ANALYST', 'ADMIN']} />}>
             <Route path="organizer/events/:id/dashboard" element={<OrganizerDashboardPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

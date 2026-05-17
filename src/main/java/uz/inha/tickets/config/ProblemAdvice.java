@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import java.util.UUID;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -67,7 +68,8 @@ public class ProblemAdvice {
         p.setType(URI.create("https://tickets.inha.uz/problems/" + code));
         p.setTitle(title(s, msg));
         p.setProperty("code", code);
-        p.setProperty("trace_id", UUID.randomUUID().toString());
+        String trace = MDC.get("trace_id");
+        p.setProperty("trace_id", trace != null ? trace : UUID.randomUUID().toString());
         p.setProperty("path", r.getRequestURI());
         if (s == HttpStatus.TOO_MANY_REQUESTS) p.setProperty("retry_after_seconds", 60);
         return p;

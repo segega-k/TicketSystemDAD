@@ -3,10 +3,13 @@ import { Link } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Loading } from '../components/Loading';
 import { eventsApi, problemMessage } from '../lib/api';
+import { useAuthStore } from '../lib/authStore';
 import { formatDateTime, money } from '../lib/format';
 import type { EventListItem } from '../types';
 
 export function EventsListPage() {
+  const role = useAuthStore((s) => s.user?.role);
+  const canViewAnalytics = role === 'ORGANIZER' || role === 'ANALYST' || role === 'ADMIN';
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [q, setQ] = useState('');
   const [activeQ, setActiveQ] = useState('');
@@ -94,9 +97,16 @@ export function EventsListPage() {
                   {event.total_seats} seats · {money(event.min_price)}–{money(event.max_price)}
                 </p>
               </div>
-              <Link className="btn btn-secondary mt-5" to={`/events/${event.id}`}>
-                View seats
-              </Link>
+              <div className="mt-5 flex flex-col gap-2">
+                <Link className="btn btn-secondary" to={`/events/${event.id}`}>
+                  View seats
+                </Link>
+                {canViewAnalytics && (
+                  <Link className="btn btn-primary" to={`/organizer/events/${event.id}/dashboard`}>
+                    View analytics
+                  </Link>
+                )}
+              </div>
             </article>
           ))}
           {!events.length && <p className="card md:col-span-2 xl:col-span-3">No events found.</p>}

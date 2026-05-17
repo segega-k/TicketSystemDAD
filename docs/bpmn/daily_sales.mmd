@@ -1,0 +1,22 @@
+---
+title: BPMN-style flow — Daily Sales Aggregation (Spec §10.1)
+---
+flowchart LR
+    start([⏱ Cron 02:00 UTC]):::evt
+    job[Spring Batch Job: dailySalesJob]:::task
+    read[Read bookings WHERE created_at::date = yesterday<br/>OR cancelled_at::date = yesterday]:::task
+    proc[Aggregate by event_id<br/>tickets_sold / tickets_cancelled / revenue / refunds]:::task
+    write[UPSERT analytics.event_daily_sales<br/>ON CONFLICT event_id, sales_date]:::task
+    decision{rows committed?}:::gw
+    ok([✅ End]):::evt
+    retry[Spring Batch retry from last commit]:::task
+    err([❌ Job FAILED — alert]):::evt
+
+    start --> job --> read --> proc --> write --> decision
+    decision -->|yes| ok
+    decision -->|no, transient| retry --> read
+    decision -->|no, fatal| err
+
+    classDef evt fill:#fff5d6,stroke:#b58900;
+    classDef task fill:#e0f0ff,stroke:#268bd2;
+    classDef gw fill:#f0e0ff,stroke:#6c71c4;

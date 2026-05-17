@@ -1,0 +1,37 @@
+{
+  "title": "Outbox dispatcher",
+  "uid": "outbox",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Heap / GC (sanity)",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{service=\"tickets-backend\",area=\"heap\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "Prometheus"}
+    },
+    {
+      "id": 2,
+      "type": "logs",
+      "title": "Outbox dispatcher logs",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "{service=\"tickets-backend\"} |= \"outbox\"",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "loki", "uid": "Loki"}
+    }
+  ]
+}

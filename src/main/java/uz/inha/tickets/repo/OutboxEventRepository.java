@@ -7,4 +7,8 @@ import uz.inha.tickets.domain.OutboxEvent;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
     List<OutboxEvent> findTop100ByPublishedAtIsNullOrderByCreatedAtAsc();
+
+    List<OutboxEvent> findTop100ByPublishedAtIsNullAndCreatedAtBeforeOrderByCreatedAtAsc(Instant before);
+
+    long countByPublishedAtIsNull();
 }

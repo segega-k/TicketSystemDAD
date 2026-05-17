@@ -1,4 +1,4 @@
-export type Role = 'CUSTOMER' | 'ORGANIZER' | 'ADMIN';
+export type Role = 'CUSTOMER' | 'ORGANIZER' | 'ANALYST' | 'ADMIN';
 
 export interface AuthTokens {
   access_token: string;

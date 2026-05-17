@@ -1,3 +1,17 @@
+name: ticketing
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
+
 services:
   postgres:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
@@ -5,8 +19,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ticket_system_dad}
       POSTGRES_USER: ${POSTGRES_USER:-ticket_system_dad}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticket_system_dad}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -16,12 +28,11 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+    networks: [internal]
 
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     command: ["redis-server", "--notify-keyspace-events", "Ex", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -30,8 +41,9 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
+    networks: [internal]
 
-  backend:
+  backend-1: &backend
     build:
       context: .
       dockerfile: Dockerfile
@@ -41,7 +53,8 @@ services:
       redis:
         condition: service_healthy
     environment:
-      PORT: ${BACKEND_CONTAINER_PORT:-8080}
+      PORT: 8080
+      INSTANCE_ID: backend-1
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/ticket_system_dad}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-ticket_system_dad}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-ticket_system_dad}
@@ -50,53 +63,141 @@ services:
       APP_REDIS_FAIL_CLOSED: ${APP_REDIS_FAIL_CLOSED:-true}
       JWT_RSA_PRIVATE_KEY_PATH: ${JWT_RSA_PRIVATE_KEY_PATH:-/run/secrets/jwt_private.pem}
       JWT_RSA_PUBLIC_KEY_PATH: ${JWT_RSA_PUBLIC_KEY_PATH:-/run/secrets/jwt_public.pem}
+      OTEL_SERVICE_NAME: tickets-backend
+      OTEL_RESOURCE_ATTRIBUTES: service.instance.id=backend-1
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
     volumes:
       - ./infra/jwt:/run/secrets:ro
-    ports:
-      - "${BACKEND_PORT:-8080}:${BACKEND_CONTAINER_PORT:-8080}"
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "curl -fsS http://127.0.0.1:$${PORT:-8080}/actuator/health/readiness || curl -fsS http://127.0.0.1:$${PORT:-8080}/actuator/health",
-        ]
+        ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health/readiness || curl -fsS http://127.0.0.1:8080/actuator/health"]
       interval: 10s
       timeout: 3s
       retries: 30
       start_period: 45s
+    networks: [internal]
+
+  backend-2:
+    <<: *backend
+    environment:
+      PORT: 8080
+      INSTANCE_ID: backend-2
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/ticket_system_dad}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-ticket_system_dad}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-ticket_system_dad}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_CONTAINER_PORT:-6379}
+      APP_REDIS_FAIL_CLOSED: ${APP_REDIS_FAIL_CLOSED:-true}
+      JWT_RSA_PRIVATE_KEY_PATH: ${JWT_RSA_PRIVATE_KEY_PATH:-/run/secrets/jwt_private.pem}
+      JWT_RSA_PUBLIC_KEY_PATH: ${JWT_RSA_PUBLIC_KEY_PATH:-/run/secrets/jwt_public.pem}
+      OTEL_SERVICE_NAME: tickets-backend
+      OTEL_RESOURCE_ATTRIBUTES: service.instance.id=backend-2
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     depends_on:
-      backend:
+      backend-1:
         condition: service_healthy
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      backend-2:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 12
       start_period: 10s
+    networks: [internal]
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      backend-1:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [internal]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.103.0
+    command: ["--config=/etc/otel/otel-collector-config.yaml"]
+    volumes:
+      - ./infra/otel/otel-collector-config.yaml:/etc/otel/otel-collector-config.yaml:ro
+    depends_on:
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    networks: [internal]
 
   prometheus:
-    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.55.1}
-    profiles: ["observability"]
-    depends_on:
-      backend:
-        condition: service_healthy
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
     volumes:
-      - ./docs/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
+    networks: [internal]
 
-volumes:
-  postgres-data:
-  redis-data:
-  prometheus-data:
+  loki:
+    image: grafana/loki:3.1.0
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    volumes:
+      - ./infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    networks: [internal]
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo/tempo-config.yaml"]
+    volumes:
+      - ./infra/tempo/tempo-config.yaml:/etc/tempo/tempo-config.yaml:ro
+      - tempo-data:/var/tempo
+    networks: [internal]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    networks: [internal]
