@@ -10,7 +10,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -40,6 +44,45 @@ public class ProblemAdvice {
         ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "validation failed", r);
         p.setProperty("invalid_params", e.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(p);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ProblemDetail> malformed(HttpMessageNotReadableException e, HttpServletRequest r) {
+        ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "malformed request body", r);
+        p.setProperty("code", "malformed-json");
+        p.setTitle("Malformed JSON");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(p);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<ProblemDetail> missingHeader(MissingRequestHeaderException e, HttpServletRequest r) {
+        String name = e.getHeaderName();
+        boolean idem = "Idempotency-Key".equalsIgnoreCase(name);
+        ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "required header missing: " + name, r);
+        p.setProperty("code", idem ? "idempotency-key-required" : "header-missing");
+        p.setProperty("header_name", name);
+        p.setTitle(idem ? "Idempotency-Key required" : "Missing required header");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(p);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    ResponseEntity<ProblemDetail> missingParam(MissingServletRequestParameterException e, HttpServletRequest r) {
+        ProblemDetail p = problem(HttpStatus.BAD_REQUEST, "required query parameter missing: " + e.getParameterName(), r);
+        p.setProperty("code", "parameter-missing");
+        p.setProperty("parameter_name", e.getParameterName());
+        p.setTitle("Missing required query parameter");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(p);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    ResponseEntity<ProblemDetail> methodNotSupported(HttpRequestMethodNotSupportedException e, HttpServletRequest r) {
+        ProblemDetail p = problem(HttpStatus.METHOD_NOT_ALLOWED, "method not allowed: " + e.getMethod(), r);
+        p.setProperty("code", "method-not-allowed");
+        p.setProperty("supported_methods", e.getSupportedMethods());
+        p.setTitle("Method not allowed");
+        ResponseEntity.BodyBuilder b = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+        if (e.getSupportedHttpMethods() != null) b.allow(e.getSupportedHttpMethods().toArray(new org.springframework.http.HttpMethod[0]));
+        return b.body(p);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -93,6 +136,10 @@ public class ProblemAdvice {
     private String suffix(HttpStatus s, String msg) {
         String m = msg == null ? "" : msg.toLowerCase();
         if (m.contains("redis")) return "redis-unavailable";
+        if (m.contains("malformed request body")) return "malformed-json";
+        if (m.contains("method not allowed")) return "method-not-allowed";
+        if (m.contains("required header missing")) return "header-missing";
+        if (m.contains("required query parameter missing")) return "parameter-missing";
         if (m.contains("validation")) return "validation-failed";
         if (m.contains("idempotency-key")) return "idempotency-key-required";
         if (m.contains("invalid credentials")) return "invalid-credentials";
@@ -133,6 +180,10 @@ public class ProblemAdvice {
     private String title(HttpStatus s, String msg) {
         return switch (suffix(s, msg)) {
             case "redis-unavailable" -> "Redis unavailable";
+            case "malformed-json" -> "Malformed JSON";
+            case "method-not-allowed" -> "Method not allowed";
+            case "header-missing" -> "Missing required header";
+            case "parameter-missing" -> "Missing required query parameter";
             case "validation-failed" -> "Validation failed";
             case "idempotency-key-required" -> "Idempotency-Key required";
             case "invalid-credentials" -> "Invalid credentials";

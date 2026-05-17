@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -82,11 +83,11 @@ public class EventController {
     ) {}
 
     public record Create(
-        @NotBlank @JsonAlias("name") String title,
-        String description,
+        @NotBlank @Size(max = 200) @JsonAlias("name") String title,
+        @Size(max = 4000) String description,
         @NotNull @JsonAlias({ "starts_at", "event_date" }) Instant startsAt,
-        @JsonAlias("venue_name") String venueName,
-        String city,
+        @Size(max = 200) @JsonAlias("venue_name") String venueName,
+        @Size(max = 120) String city,
         Object rows,
         @JsonAlias("row_count") Integer rowCount,
         @JsonAlias("seats_per_row") Integer seatsPerRow,

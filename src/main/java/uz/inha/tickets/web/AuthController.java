@@ -32,15 +32,15 @@ public class AuthController {
     }
 
     public record Register(
-        @NotBlank @Email String email,
-        @NotBlank @Size(min = 8) String password,
-        String role,
-        @JsonAlias({ "display_name", "full_name" }) String displayName
+        @NotBlank @Email @Size(max = 255) String email,
+        @NotBlank @Size(min = 8, max = 128) String password,
+        @Size(max = 32) String role,
+        @JsonAlias({ "display_name", "full_name" }) @Size(max = 120) String displayName
     ) {}
 
-    public record Login(@NotBlank @Email String email, @NotBlank String password) {}
+    public record Login(@NotBlank @Email @Size(max = 255) String email, @NotBlank @Size(max = 128) String password) {}
 
-    public record Refresh(@NotBlank @JsonAlias("refresh_token") String refreshToken) {}
+    public record Refresh(@NotBlank @Size(max = 4096) @JsonAlias("refresh_token") String refreshToken) {}
 
     @PostMapping("/register")
     @Operation(summary = "Register customer account")
