@@ -28,11 +28,14 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 0.8
     networks: [internal]
 
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
-    command: ["redis-server", "--notify-keyspace-events", "Ex", "--appendonly", "yes"]
+    command: ["redis-server", "--notify-keyspace-events", "Ex", "--appendonly", "yes", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis-data:/data
     healthcheck:
@@ -41,6 +44,9 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
+    mem_limit: 128m
+    mem_reservation: 64m
+    cpus: 0.3
     networks: [internal]
 
   backend-1: &backend
@@ -55,6 +61,7 @@ services:
     environment:
       PORT: 8080
       INSTANCE_ID: backend-1
+      JAVA_OPTS: "-Xms256m -Xmx450m -XX:MaxRAMPercentage=70.0"
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/ticket_system_dad}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-ticket_system_dad}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-ticket_system_dad}
@@ -79,6 +86,9 @@ services:
       timeout: 3s
       retries: 30
       start_period: 45s
+    mem_limit: 700m
+    mem_reservation: 400m
+    cpus: 0.8
     networks: [internal]
 
   backend-2:
@@ -86,6 +96,7 @@ services:
     environment:
       PORT: 8080
       INSTANCE_ID: backend-2
+      JAVA_OPTS: "-Xms256m -Xmx450m -XX:MaxRAMPercentage=70.0"
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/ticket_system_dad}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-ticket_system_dad}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-ticket_system_dad}
@@ -117,6 +128,8 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+    mem_limit: 64m
+    cpus: 0.2
     networks: [internal]
 
   nginx:
@@ -139,6 +152,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    mem_limit: 64m
+    cpus: 0.3
     networks: [internal]
 
   otel-collector:
@@ -151,6 +166,8 @@ services:
         condition: service_started
       tempo:
         condition: service_started
+    mem_limit: 192m
+    cpus: 0.3
     networks: [internal]
 
   prometheus:
@@ -158,11 +175,15 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=512MB
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
+    mem_limit: 256m
+    cpus: 0.3
     networks: [internal]
 
   loki:
@@ -171,6 +192,8 @@ services:
     volumes:
       - ./infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
       - loki-data:/loki
+    mem_limit: 192m
+    cpus: 0.2
     networks: [internal]
 
   tempo:
@@ -179,6 +202,8 @@ services:
     volumes:
       - ./infra/tempo/tempo-config.yaml:/etc/tempo/tempo-config.yaml:ro
       - tempo-data:/var/tempo
+    mem_limit: 192m
+    cpus: 0.2
     networks: [internal]
 
   grafana:
@@ -200,4 +225,6 @@ services:
         condition: service_started
       tempo:
         condition: service_started
+    mem_limit: 192m
+    cpus: 0.3
     networks: [internal]
