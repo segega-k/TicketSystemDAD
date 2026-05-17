@@ -26,6 +26,9 @@ public class LogMdcFilter extends OncePerRequestFilter {
     static final String TRACE = "trace_id";
     static final String SPAN = "span_id";
     static final String REQ = "request_id";
+    static final String UA = "user_agent";
+    static final String METHOD = "http_method";
+    static final int UA_MAX = 200;
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain fc)
@@ -38,10 +41,14 @@ public class LogMdcFilter extends OncePerRequestFilter {
         String reqId = req.getHeader("X-Request-Id");
         if (reqId == null || reqId.isBlank()) reqId = trace;
 
+        String ua = sanitizeUa(req.getHeader("User-Agent"));
+
         try {
             MDC.put(TRACE, trace);
             if (span != null) MDC.put(SPAN, span);
             MDC.put(REQ, reqId);
+            if (ua != null) MDC.put(UA, ua);
+            MDC.put(METHOD, req.getMethod());
             res.setHeader("X-Request-Id", reqId);
             res.setHeader("X-Trace-Id", trace);
             fc.doFilter(req, res);
@@ -49,7 +56,19 @@ public class LogMdcFilter extends OncePerRequestFilter {
             MDC.remove(TRACE);
             MDC.remove(SPAN);
             MDC.remove(REQ);
+            MDC.remove(UA);
+            MDC.remove(METHOD);
         }
+    }
+
+    /**
+     * Defensive: clamp User-Agent to {@value #UA_MAX} chars, strip CR/LF/tab so a hostile
+     * client cannot inject log lines via the User-Agent header (log forging).
+     */
+    static String sanitizeUa(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String trimmed = raw.length() > UA_MAX ? raw.substring(0, UA_MAX) : raw;
+        return trimmed.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ');
     }
 
     /** {@code traceparent: 00-{trace-id}-{span-id}-{flags}}. */

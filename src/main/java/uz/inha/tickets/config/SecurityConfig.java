@@ -6,6 +6,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -17,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.filter.OncePerRequestFilter;
 import uz.inha.tickets.repo.UserRepository;
 import uz.inha.tickets.service.JwtService;
@@ -35,6 +38,17 @@ public class SecurityConfig {
         return http
             .csrf(c -> c.disable())
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // Defensive response headers — TLS/HSTS is set at the nginx gateway, but we make
+            // X-Content-Type-Options, X-Frame-Options and Referrer-Policy explicit at the
+            // application layer too so direct-to-backend traffic (smoke tests, debug tunnels)
+            // still receives them. Cache-Control: no-store prevents any intermediate from
+            // caching JWT-bearing responses.
+            .headers(h -> h
+                .contentTypeOptions(c -> {})
+                .frameOptions(f -> f.deny())
+                .referrerPolicy(rp -> rp.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .cacheControl(cc -> {})
+            )
             .authorizeHttpRequests(a ->
                 a
                     .requestMatchers(
@@ -66,6 +80,8 @@ public class SecurityConfig {
 
     static class JwtFilter extends OncePerRequestFilter {
 
+        private static final Logger LOG = LoggerFactory.getLogger(JwtFilter.class);
+
         final JwtService jwt;
         final UserRepository users;
 
@@ -93,7 +109,18 @@ public class SecurityConfig {
                                     )
                                 )
                         );
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    // Anonymous request continues unauthenticated; do not echo the token.
+                    // Log only the exception class + message at debug level so operators
+                    // can correlate via trace_id without leaking the bearer token itself.
+                    LOG.debug(
+                        "rejected JWT on {} {}: {} ({})",
+                        req.getMethod(),
+                        req.getRequestURI(),
+                        e.getClass().getSimpleName(),
+                        e.getMessage()
+                    );
+                }
             }
             fc.doFilter(req, res);
         }

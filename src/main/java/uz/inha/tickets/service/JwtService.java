@@ -14,12 +14,16 @@ import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import uz.inha.tickets.domain.UserAccount;
 
 @Service
 public class JwtService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(JwtService.class);
 
     @Value("${app.jwt.issuer}")
     String issuer;
@@ -55,12 +59,22 @@ public class JwtService {
                 KeyFactory kf = KeyFactory.getInstance("RSA");
                 privateKey = kf.generatePrivate(new PKCS8EncodedKeySpec(pemBytes(priv)));
                 publicKey = kf.generatePublic(new X509EncodedKeySpec(pemBytes(pub)));
+                LOG.info("JWT RS256 keypair loaded from configured PEM source");
             } else {
                 KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
                 gen.initialize(2048);
                 KeyPair pair = gen.generateKeyPair();
                 privateKey = pair.getPrivate();
                 publicKey = pair.getPublic();
+                // SECURITY: every restart invalidates all outstanding access tokens because
+                // the public verification key changes. Acceptable for local development
+                // only — production MUST mount a real keypair via JWT_RSA_*_KEY_PATH (see
+                // README §Environment variables).
+                LOG.warn(
+                    "JWT RS256 keys not configured (JWT_RSA_*_KEY[_PATH] empty) — "
+                        + "generated ephemeral 2048-bit keypair. Outstanding access tokens "
+                        + "will be invalidated on restart. Do not use in production."
+                );
             }
         } catch (Exception e) {
             throw new IllegalStateException("Unable to initialize RS256 JWT keys", e);
