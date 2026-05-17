@@ -1,0 +1,7 @@
+flowchart LR
+Guest-->API[Spring Boot API]
+Customer-->API
+Organizer-->API
+API-->PG[(Postgres)]
+API-->Redis[(Redis holds/rate limit/pubsub)]
+API-->WS[STOMP topics]
