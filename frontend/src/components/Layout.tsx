@@ -23,7 +23,7 @@ export function Layout() {
       <header className="bg-slate-900 text-white">
         <div className="container-page flex flex-col gap-3 py-4 md:flex-row md:items-center md:justify-between">
           <Link to="/" className="text-xl font-bold text-white hover:text-white">
-            TZ Ticketing
+            Ticket System DAD
           </Link>
           <nav aria-label="Primary" className="flex flex-wrap items-center gap-2">
             <NavLink to="/events" className={navClass}>

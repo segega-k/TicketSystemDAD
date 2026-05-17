@@ -16,10 +16,16 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import uz.inha.tickets.config.AdminBootstrap;
+import uz.inha.tickets.domain.Enums.EventStatus;
 import uz.inha.tickets.domain.Enums.Role;
+import uz.inha.tickets.domain.Event;
 import uz.inha.tickets.domain.UserAccount;
+import uz.inha.tickets.repo.BookingRepository;
+import uz.inha.tickets.repo.EventRepository;
+import uz.inha.tickets.repo.RefreshTokenRepository;
 import uz.inha.tickets.repo.UserRepository;
 import uz.inha.tickets.service.AuditService;
+import uz.inha.tickets.service.BookingService;
 import uz.inha.tickets.service.DomainException;
 
 @RestController
@@ -31,12 +37,29 @@ public class AdminUserController {
     private final PasswordEncoder encoder;
     private final Current current;
     private final AuditService audit;
+    private final EventRepository events;
+    private final BookingRepository bookings;
+    private final RefreshTokenRepository refreshTokens;
+    private final BookingService bookingService;
 
-    public AdminUserController(UserRepository users, PasswordEncoder encoder, Current current, AuditService audit) {
+    public AdminUserController(
+        UserRepository users,
+        PasswordEncoder encoder,
+        Current current,
+        AuditService audit,
+        EventRepository events,
+        BookingRepository bookings,
+        RefreshTokenRepository refreshTokens,
+        BookingService bookingService
+    ) {
         this.users = users;
         this.encoder = encoder;
         this.current = current;
         this.audit = audit;
+        this.events = events;
+        this.bookings = bookings;
+        this.refreshTokens = refreshTokens;
+        this.bookingService = bookingService;
     }
 
     public record CreateUser(
@@ -115,6 +138,25 @@ public class AdminUserController {
         UserAccount actor = requireAdmin();
         UserAccount target = users.findById(id).orElseThrow(() -> DomainException.notFound("user not found"));
         guardManaged(target, actor, "delete");
+
+        if (!bookings.findByUserIdOrderByCreatedAtDesc(target.id).isEmpty()) {
+            throw DomainException.conflict("user has bookings; cannot delete");
+        }
+
+        if (target.role == Role.ORGANIZER) {
+            List<Event> orgEvents = events.findByOrganizerId(target.id);
+            for (Event ev : orgEvents) {
+                bookingService.cancelAllForEvent(actor, ev, "organizer_account_deleted");
+                ev.status = EventStatus.CANCELLED;
+                ev.organizer = actor;
+                events.save(ev);
+            }
+            if (!orgEvents.isEmpty()) {
+                audit.record(actor.id, "ADMIN_REASSIGNED_EVENTS", "user", target.id, "count=" + orgEvents.size());
+            }
+        }
+
+        refreshTokens.deleteByUserId(target.id);
         users.delete(target);
         audit.record(actor.id, "ADMIN_DELETED_USER", "user", id, "role=" + target.role);
         return ResponseEntity.noContent().build();
